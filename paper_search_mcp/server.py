@@ -1,5 +1,7 @@
 # paper_search_mcp/server.py
+import os
 from typing import List, Dict, Optional
+
 import httpx
 from mcp.server.fastmcp import FastMCP
 from .academic_platforms.arxiv import ArxivSearcher
@@ -430,5 +432,50 @@ async def read_crossref_paper(paper_id: str, save_path: str = "./downloads") -> 
     return crossref_searcher.read_paper(paper_id, save_path)
 
 
+def create_sse_app():
+    """Create a Starlette ASGI app with SSE transport and API key auth."""
+    from starlette.applications import Starlette
+    from starlette.routing import Route, Mount
+    from starlette.responses import JSONResponse as StarletteJSONResponse
+    from starlette.middleware import Middleware
+    from mcp.server.sse import SseServerTransport
+    from .auth import APIKeyAuthMiddleware
+
+    sse = SseServerTransport("/messages/")
+
+    async def handle_sse(request):
+        async with sse.connect_sse(
+            request.scope, request.receive, request._send
+        ) as (read_stream, write_stream):
+            await mcp._mcp_server.run(
+                read_stream,
+                write_stream,
+                mcp._mcp_server.create_initialization_options(),
+            )
+
+    async def health(request):
+        return StarletteJSONResponse({"status": "ok"})
+
+    app = Starlette(
+        routes=[
+            Route("/health", endpoint=health),
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages/", app=sse.handle_post_message),
+        ],
+        middleware=[Middleware(APIKeyAuthMiddleware)],
+    )
+    return app
+
+
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    transport = os.environ.get("MCP_TRANSPORT", "stdio")
+
+    if transport == "sse":
+        import uvicorn
+
+        app = create_sse_app()
+        host = os.environ.get("MCP_HOST", "0.0.0.0")
+        port = int(os.environ.get("MCP_PORT", "8000"))
+        uvicorn.run(app, host=host, port=port)
+    else:
+        mcp.run(transport="stdio")
