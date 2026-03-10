@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 EXEMPT_PATHS = {"/health"}
 # Messages endpoint is session-scoped (session_id is a random token issued per authenticated
 # SSE connection), so it does not need separate API key auth.
-EXEMPT_PREFIXES = ("/messages/",)
+EXEMPT_PREFIXES = ("/messages/", "/sse/messages/")
 
 
 class APIKeyAuthMiddleware:

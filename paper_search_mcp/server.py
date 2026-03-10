@@ -448,16 +448,21 @@ def create_sse_app():
     from mcp.server.sse import SseServerTransport
     from .auth import APIKeyAuthMiddleware
 
-    sse = SseServerTransport("/messages/")
+    # Messages path relative to the /sse mount, so client POSTs to /sse/messages/
+    sse = SseServerTransport("/sse/messages/")
 
-    # Pure ASGI handler — avoids request_response() wrapping that breaks SSE
+    # Pure ASGI handler — handles both GET (SSE stream) and POST (message submission).
+    # Mount("/sse", ...) intercepts all /sse/* requests, so we route internally.
     async def handle_sse(scope, receive, send):
-        async with sse.connect_sse(scope, receive, send) as (read_stream, write_stream):
-            await mcp._mcp_server.run(
-                read_stream,
-                write_stream,
-                mcp._mcp_server.create_initialization_options(),
-            )
+        if scope.get("method") == "POST":
+            await sse.handle_post_message(scope, receive, send)
+        else:
+            async with sse.connect_sse(scope, receive, send) as (read_stream, write_stream):
+                await mcp._mcp_server.run(
+                    read_stream,
+                    write_stream,
+                    mcp._mcp_server.create_initialization_options(),
+                )
 
     async def health(request):
         return StarletteJSONResponse({"status": "ok"})
@@ -466,7 +471,6 @@ def create_sse_app():
         routes=[
             Route("/health", endpoint=health),
             Mount("/sse", app=handle_sse),
-            Mount("/messages/", app=sse.handle_post_message),
         ],
         middleware=[Middleware(APIKeyAuthMiddleware)],
     )
