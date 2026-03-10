@@ -453,6 +453,9 @@ def create_sse_app():
                 mcp._mcp_server.create_initialization_options(),
             )
 
+    async def handle_post_message(scope, receive, send):
+        await sse.handle_post_message(scope, receive, send)
+
     async def health(request):
         return StarletteJSONResponse({"status": "ok"})
 
@@ -460,7 +463,7 @@ def create_sse_app():
         routes=[
             Route("/health", endpoint=health),
             Route("/sse", endpoint=handle_sse),
-            Mount("/messages/", app=sse.handle_post_message),
+            Mount("/messages/", app=handle_post_message),
         ],
         middleware=[Middleware(APIKeyAuthMiddleware)],
     )
