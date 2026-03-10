@@ -1,6 +1,10 @@
 # paper_search_mcp/server.py
+import logging
 import os
 from typing import List, Dict, Optional
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -33,13 +37,16 @@ crossref_searcher = CrossRefSearcher()
 
 # Asynchronous helper to adapt synchronous searchers
 async def async_search(searcher, query: str, max_results: int, **kwargs) -> List[Dict]:
+    logger.info("Tool call: %s query=%r max_results=%d", type(searcher).__name__, query, max_results)
     async with httpx.AsyncClient() as client:
         # Assuming searchers use requests internally; we'll call synchronously for now
         if 'year' in kwargs:
             papers = searcher.search(query, year=kwargs['year'], max_results=max_results)
         else:
             papers = searcher.search(query, max_results=max_results)
-        return [paper.to_dict() for paper in papers]
+        results = [paper.to_dict() for paper in papers]
+    logger.info("Tool result: %s returned %d results", type(searcher).__name__, len(results))
+    return results
 
 
 # Tool definitions
