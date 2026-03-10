@@ -443,7 +443,7 @@ def create_sse_app():
     """Create a Starlette ASGI app with SSE transport and API key auth."""
     from starlette.applications import Starlette
     from starlette.routing import Route, Mount
-    from starlette.responses import JSONResponse as StarletteJSONResponse
+    from starlette.responses import JSONResponse as StarletteJSONResponse, Response
     from starlette.middleware import Middleware
     from mcp.server.sse import SseServerTransport
     from .auth import APIKeyAuthMiddleware
@@ -459,6 +459,7 @@ def create_sse_app():
                 write_stream,
                 mcp._mcp_server.create_initialization_options(),
             )
+        return Response()
 
     async def handle_post_message(scope, receive, send):
         await sse.handle_post_message(scope, receive, send)
