@@ -2,46 +2,63 @@
 
 import os
 import logging
-
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import JSONResponse
+import json
 
 logger = logging.getLogger(__name__)
 
+EXEMPT_PATHS = {"/health"}
 
-class APIKeyAuthMiddleware(BaseHTTPMiddleware):
-    """Validates API key from Authorization header or query parameter.
+
+class APIKeyAuthMiddleware:
+    """Pure ASGI middleware that validates API key from Authorization header or query parameter.
+
+    Uses pure ASGI (not BaseHTTPMiddleware) so it works correctly with SSE/streaming responses.
 
     Set the MCP_API_KEY environment variable to enable authentication.
     When MCP_API_KEY is not set, all requests are allowed (open mode).
     """
 
-    EXEMPT_PATHS = {"/health"}
+    def __init__(self, app):
+        self.app = app
 
-    async def dispatch(self, request: Request, call_next):
-        if request.url.path in self.EXEMPT_PATHS:
-            return await call_next(request)
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if path in EXEMPT_PATHS:
+            await self.app(scope, receive, send)
+            return
 
         api_key = os.environ.get("MCP_API_KEY")
         if not api_key:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
-        # Check Authorization: Bearer <key>
-        auth_header = request.headers.get("Authorization", "")
+        # Extract headers (ASGI headers are list of (name_bytes, value_bytes))
+        headers = dict(scope.get("headers", []))
+        auth_header = headers.get(b"authorization", b"").decode()
         if auth_header.startswith("Bearer ") and auth_header[7:] == api_key:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         # Query parameter fallback
-        if request.query_params.get("api_key") == api_key:
-            return await call_next(request)
+        query_string = scope.get("query_string", b"").decode()
+        if f"api_key={api_key}" in query_string:
+            await self.app(scope, receive, send)
+            return
 
+        client = scope.get("client")
         logger.warning(
             "Unauthorized request from %s to %s",
-            request.client.host if request.client else "unknown",
-            request.url.path,
+            client[0] if client else "unknown",
+            path,
         )
-        return JSONResponse(
-            {"error": "Unauthorized. Provide API key via 'Authorization: Bearer <key>' header."},
-            status_code=401,
-        )
+        body = json.dumps(
+            {"error": "Unauthorized. Provide API key via 'Authorization: Bearer <key>' header."}
+        ).encode()
+        await send({"type": "http.response.start", "status": 401,
+                    "headers": [(b"content-type", b"application/json"),
+                                (b"content-length", str(len(body)).encode())]})
+        await send({"type": "http.response.body", "body": body, "more_body": False})

@@ -443,26 +443,21 @@ def create_sse_app():
     """Create a Starlette ASGI app with SSE transport and API key auth."""
     from starlette.applications import Starlette
     from starlette.routing import Route, Mount
-    from starlette.responses import JSONResponse as StarletteJSONResponse, Response
+    from starlette.responses import JSONResponse as StarletteJSONResponse
     from starlette.middleware import Middleware
     from mcp.server.sse import SseServerTransport
     from .auth import APIKeyAuthMiddleware
 
     sse = SseServerTransport("/messages/")
 
-    async def handle_sse(request):
-        async with sse.connect_sse(
-            request.scope, request.receive, request._send
-        ) as (read_stream, write_stream):
+    # Pure ASGI handler — avoids request_response() wrapping that breaks SSE
+    async def handle_sse(scope, receive, send):
+        async with sse.connect_sse(scope, receive, send) as (read_stream, write_stream):
             await mcp._mcp_server.run(
                 read_stream,
                 write_stream,
                 mcp._mcp_server.create_initialization_options(),
             )
-        return Response()
-
-    async def handle_post_message(scope, receive, send):
-        await sse.handle_post_message(scope, receive, send)
 
     async def health(request):
         return StarletteJSONResponse({"status": "ok"})
@@ -470,8 +465,8 @@ def create_sse_app():
     app = Starlette(
         routes=[
             Route("/health", endpoint=health),
-            Route("/sse", endpoint=handle_sse),
-            Mount("/messages/", app=handle_post_message),
+            Mount("/sse", app=handle_sse),
+            Mount("/messages/", app=sse.handle_post_message),
         ],
         middleware=[Middleware(APIKeyAuthMiddleware)],
     )
