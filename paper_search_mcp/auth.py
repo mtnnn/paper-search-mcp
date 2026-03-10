@@ -7,6 +7,9 @@ import json
 logger = logging.getLogger(__name__)
 
 EXEMPT_PATHS = {"/health"}
+# Messages endpoint is session-scoped (session_id is a random token issued per authenticated
+# SSE connection), so it does not need separate API key auth.
+EXEMPT_PREFIXES = ("/messages/",)
 
 
 class APIKeyAuthMiddleware:
@@ -27,7 +30,7 @@ class APIKeyAuthMiddleware:
             return
 
         path = scope.get("path", "")
-        if path in EXEMPT_PATHS:
+        if path in EXEMPT_PATHS or any(path.startswith(p) for p in EXEMPT_PREFIXES):
             await self.app(scope, receive, send)
             return
 
